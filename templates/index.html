@@ -1257,7 +1257,7 @@
                     if(upLogo) newLogoUrl = upLogo;
                 }
 
-                await pyAPI('/api/kv/settings/global', 'POST', { 
+                const payload = { 
                     appName: document.getElementById('adminAppName').value.trim() || "NumaX OTP",
                     appShortName: document.getElementById('adminAppShortName').value.trim() || "app",
                     appLogo: newLogoUrl,
@@ -1273,9 +1273,19 @@
                     referOneTimeAmt: parseFloat(document.getElementById('adminRefOneTime').value)||5.0, 
                     minWithdraw: parseFloat(document.getElementById('adminMinWithdraw').value)||10, 
                     welcomeMsg: document.getElementById('adminWelcomeMsg').value.trim() 
-                }); 
+                };
+
+                const response = await pyAPI('/api/kv/settings/global', 'POST', payload); 
+                if (response && response.status === 'success') {
+                    // Instantly update the state in-memory and update UI components!
+                    globalSettings = { ...globalSettings, ...response.data };
+                    applySettingsToUI();
+                    showToast("Settings Saved & Updated Instantly!", "success"); 
+                } else {
+                    showToast("Failed to save settings.", "error");
+                }
+                
                 document.getElementById('adminAppLogoFile').previousElementSibling.innerHTML = '<i class="fa-solid fa-image mr-1"></i> Upload Image';
-                showToast("Settings Saved", "success"); 
             } catch(e) { showToast("Error saving", "error"); } 
             finally { btn.innerHTML = orig; btn.disabled = false; }
         }
@@ -1293,8 +1303,6 @@
                 
                 // For Dashboard View
                 document.getElementById('dashTotalOtp').innerText = data.lifetime.total;
-                let totEarn = 0;
-                // Cost calculation for simple display
             }
         }
 
