@@ -46,6 +46,25 @@ def init_db():
 init_db()
 
 # ==========================================
+# PURE PYTHON CORS HANDLING
+# ==========================================
+@app.before_request
+def handle_options_preflight():
+    if request.method == 'OPTIONS':
+        response = app.make_response('')
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, mauthapi'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+        return response
+
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, mauthapi'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    return response
+
+# ==========================================
 # TELEGRAM BOT ENGINE (ALWAYS RUNNING)
 # ==========================================
 def bot_polling_thread():
@@ -79,13 +98,6 @@ def bot_polling_thread():
                     uid = str(msg.get('from', {}).get('id', ''))
                     
                     if not text or not chat_id: continue
-
-                    # Bot Keyboard Layout
-                    reply_markup = {
-                        "keyboard": [[{"text": "Broadcast"}, {"text": "Total User"}]],
-                        "resize_keyboard": True,
-                        "is_persistent": True
-                    }
                     
                     if text.startswith('/start'):
                         app_url = f"https://t.me/{bot_username}/{app_short}"
@@ -100,21 +112,40 @@ def bot_polling_thread():
                             "reply_markup": {"inline_keyboard": [[{"text": "🚀 OPEN APP", "url": app_url}]]}
                         })
                         
-                        # Send secondary message to display Keyboard
-                        requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={
-                            "chat_id": chat_id,
-                            "text": "Menu options:",
-                            "reply_markup": reply_markup
-                        })
+                        # Only show custom keyboard if user is Admin
+                        if uid == ADMIN_UID:
+                            reply_markup = {
+                                "keyboard": [[{"text": "Broadcast"}, {"text": "Total User"}]],
+                                "resize_keyboard": True,
+                                "is_persistent": True
+                            }
+                            requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={
+                                "chat_id": chat_id,
+                                "text": "🛠️ Admin Menu options:",
+                                "reply_markup": reply_markup
+                            })
+                        else:
+                            # For normal users, clear existing keyboards
+                            requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={
+                                "chat_id": chat_id,
+                                "text": "Welcome to our app! Use the button above to launch.",
+                                "reply_markup": {"remove_keyboard": True}
+                            })
                         
                     elif text == "Total User":
-                        with get_db() as c2:
-                            cur = c2.cursor()
-                            cur.execute("SELECT COUNT(*) as cnt FROM kv_store WHERE collection='users'")
-                            total = cur.fetchone()['cnt']
-                        requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={
-                            "chat_id": chat_id, "text": f"👥 <b>Total Active Users:</b> {total}", "parse_mode": "HTML"
-                        })
+                        if uid == ADMIN_UID:
+                            with get_db() as c2:
+                                cur = c2.cursor()
+                                cur.execute("SELECT COUNT(*) as cnt FROM kv_store WHERE collection='users'")
+                                total = cur.fetchone()['cnt']
+                            requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={
+                                "chat_id": chat_id, "text": f"👥 <b>Total Active Users:</b> {total}", "parse_mode": "HTML"
+                            })
+                        else:
+                            requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={
+                                "chat_id": chat_id, "text": "❌ You are not an admin.",
+                                "reply_markup": {"remove_keyboard": True}
+                            })
                         
                     elif text == "Broadcast":
                         if uid == ADMIN_UID:
@@ -123,24 +154,30 @@ def bot_polling_thread():
                             })
                         else:
                             requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={
-                                "chat_id": chat_id, "text": "❌ You are not an admin."
+                                "chat_id": chat_id, "text": "❌ You are not an admin.",
+                                "reply_markup": {"remove_keyboard": True}
                             })
                             
-                    elif text.startswith('/bc ') and uid == ADMIN_UID:
-                        bc_msg = text.replace('/bc ', '')
-                        # Send to all users
-                        with get_db() as c2:
-                            cur = c2.cursor()
-                            cur.execute("SELECT doc_id FROM kv_store WHERE collection='users'")
-                            for user_row in cur.fetchall():
-                                try:
-                                    requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={
-                                        "chat_id": user_row['doc_id'], "text": f"📢 <b>Announcement</b>\n\n{bc_msg}", "parse_mode": "HTML"
-                                    })
-                                except: pass
-                        requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={
-                            "chat_id": chat_id, "text": "✅ Broadcast sent successfully!"
-                        })
+                    elif text.startswith('/bc '):
+                        if uid == ADMIN_UID:
+                            bc_msg = text.replace('/bc ', '')
+                            # Send to all users
+                            with get_db() as c2:
+                                cur = c2.cursor()
+                                cur.execute("SELECT doc_id FROM kv_store WHERE collection='users'")
+                                for user_row in cur.fetchall():
+                                    try:
+                                        requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={
+                                            "chat_id": user_row['doc_id'], "text": f"📢 <b>Announcement</b>\n\n{bc_msg}", "parse_mode": "HTML"
+                                        })
+                                    except: pass
+                            requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={
+                                "chat_id": chat_id, "text": "✅ Broadcast sent successfully!"
+                            })
+                        else:
+                            requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={
+                                "chat_id": chat_id, "text": "❌ You are not an admin."
+                            })
                         
         except Exception as e:
             pass
